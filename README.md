@@ -29,7 +29,7 @@ pocketrag add ./my_documents
 pocketrag chat
 ```
 
-🏗️ Architecture
+## 🏗️ Architecture
 PocketRAG uses:
 
 LanceDB: Serverless vector storage.
@@ -40,7 +40,7 @@ SentenceTransformers: High-performance local embeddings.
 
 Rich/Typer: For a beautiful CLI experience.
 
-🤝 Contributing
+## 🤝 Contributing
 
 Built for developers who value privacy. PRs are welcome!
 
