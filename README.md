@@ -5,7 +5,7 @@
 
 PocketRAG turns your local documents into an intelligent, searchable database. Built for speed, privacy, and minimal resource usage (optimized for Qwen3.5 0.8B).
 
-![Terminal Demo](assets/demo.gif) <!-- ADD A GIF HERE! -->
+![PixelArt](assets/lr.jpeg)
 
 ## 🚀 Why PocketRAG?
 - **100% Offline:** Your data never leaves your machine.
