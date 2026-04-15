@@ -17,7 +17,7 @@ PocketRAG turns your local documents into an intelligent, searchable database. B
 
 ```bash
 # 1. Install
-git clone https://github.com/YOUR_USERNAME/pocketrag
+git clone https://github.com/Qeuph/PocketRag
 cd pocketrag
 pip install -e .
 
