@@ -27,8 +27,9 @@ pocketrag add ./my_documents
 
 # 3. Chat
 pocketrag chat
-🏗️ Architecture
+```
 
+🏗️ Architecture
 PocketRAG uses:
 
 LanceDB: Serverless vector storage.
