@@ -1,0 +1,15 @@
+[project]
+name = "pocketrag"
+version = "0.1.0"
+dependencies = [
+    "typer",
+    "rich",
+    "ollama",
+    "lancedb",
+    "sentence-transformers",
+    "pypdf",
+    "tqdm"
+]
+
+[project.scripts]
+pocketrag = "main:app"
