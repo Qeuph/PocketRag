@@ -68,6 +68,8 @@ def add(
         console.print(f"   • Files processed: {stats['files_processed']}")
         console.print(f"   • Files skipped: {stats['files_skipped']}")
         console.print(f"   • Chunks created: {stats['chunks_created']}")
+        if "chunks_replaced" in stats:
+            console.print(f"   • Chunks replaced: {stats['chunks_replaced']}")
         console.print(f"   • Errors: {stats['errors']}")
         
     except Exception as e:
@@ -188,6 +190,8 @@ def config_cmd(
     value: Optional[str] = typer.Argument(None, help="The value to set."),
 ):
     """Get or set configuration values."""
+    persisted_keys = set(config.to_dict().keys())
+
     if key is None:
         console.print("[bold blue]🛠️  PocketRAG Configuration[/bold blue]")
         for k, v in config.to_dict().items():
@@ -197,6 +201,11 @@ def config_cmd(
     if not hasattr(config, key) or isinstance(getattr(type(config), key, None), property):
         console.print(f"[red]❌ Invalid or read-only config key: {key}[/red]")
         return
+
+    if key not in persisted_keys:
+        console.print(
+            f"[yellow]⚠️  '{key}' is runtime-only and is not persisted to config.json.[/yellow]"
+        )
 
     if value is None:
         console.print(f"{key}: [green]{getattr(config, key)}[/green]")
@@ -210,11 +219,14 @@ def config_cmd(
                 casted_value = int(value)
             elif isinstance(current_val, float):
                 casted_value = float(value)
+            elif isinstance(current_val, tuple):
+                casted_value = tuple(part.strip() for part in value.split(",") if part.strip())
             else:
                 casted_value = value
 
             setattr(config, key, casted_value)
-            config.save()
+            if key in persisted_keys:
+                config.save()
             console.print(f"[green]✅ Set {key} to {casted_value}[/green]")
         except Exception as e:
             console.print(f"[red]❌ Failed to set {key}: {e}[/red]")
