@@ -8,7 +8,8 @@ Features:
 - Context formatting for LLM prompts
 """
 import logging
-from typing import List, Dict, Any, Optional
+import json
+from typing import List, Dict, Any, Optional, Union
 
 from pocketrag.config import config
 from pocketrag.core.embedding import EmbeddingEngine
@@ -89,6 +90,7 @@ class Searcher:
         top_k: int = 5,
         score_threshold: Optional[float] = None,
         filter_source: Optional[str] = None,
+        mode: Optional[str] = None,
     ) -> List[SearchResult]:
         """
         Search for documents matching the query.
@@ -110,12 +112,21 @@ class Searcher:
         if score_threshold is None:
             score_threshold = config.score_threshold
         
-        # Generate query embedding
-        query_vector = self.embedder.embed_single(query)
-        
-        if len(query_vector) == 0:
-            logger.error("Failed to generate query embedding")
-            return []
+        # Determine search mode
+        if mode is None:
+            mode = "hybrid" if config.enable_hybrid_search else "vector"
+
+        query_vector = None
+        if mode in ["vector", "hybrid"]:
+            # Generate query embedding
+            query_vector = self.embedder.embed_single(query)
+
+            if len(query_vector) == 0:
+                logger.error("Failed to generate query embedding")
+                if mode == "vector":
+                    return []
+                # If hybrid fails embedding, maybe fallback to fts?
+                # For now just log and continue if possible
         
         # Build filter expression
         filter_expr = None
@@ -124,10 +135,12 @@ class Searcher:
         
         # Search the vector store
         raw_results = self.store.search(
-            query_vector.tolist(),
+            query_vector=query_vector,
+            query_text=query,
             top_k=top_k,
             filter_expr=filter_expr,
             score_threshold=score_threshold,
+            mode=mode
         )
         
         # Convert to SearchResult objects
@@ -136,7 +149,6 @@ class Searcher:
             # Import metadata if present
             metadata = {}
             if res.get('metadata'):
-                import json
                 try:
                     metadata = json.loads(res['metadata'])
                 except (json.JSONDecodeError, TypeError):

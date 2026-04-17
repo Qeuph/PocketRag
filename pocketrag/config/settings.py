@@ -3,9 +3,10 @@ PocketRAG - Production Configuration Module
 """
 import os
 import logging
+import json
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 
 @dataclass
@@ -60,7 +61,45 @@ class Config:
     def ensure_db_dir(self) -> None:
         """Ensure the database directory exists."""
         self.db_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert config to dictionary."""
+        return {
+            "db_path": str(self.db_path),
+            "embedding_model": self.embedding_model,
+            "chunk_size": self.chunk_size,
+            "chunk_overlap": self.chunk_overlap,
+            "default_model": self.default_model,
+            "enable_hybrid_search": self.enable_hybrid_search,
+        }
+
+    def save(self, path: Optional[Path] = None) -> None:
+        """Save config to a JSON file."""
+        if path is None:
+            path = self.db_dir / "config.json"
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    def load(self, path: Optional[Path] = None) -> None:
+        """Load config from a JSON file."""
+        if path is None:
+            path = self.db_dir / "config.json"
+
+        if not path.exists():
+            return
+
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+                for key, value in data.items():
+                    # Only set attributes that exist and are not properties
+                    if hasattr(self, key) and not isinstance(getattr(type(self), key, None), property):
+                        setattr(self, key, value)
+        except Exception as e:
+            logger.warning(f"Failed to load config from {path}: {e}")
+
     def setup_logging(self) -> None:
         """Configure logging for the application."""
         log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

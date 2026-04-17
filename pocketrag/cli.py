@@ -2,10 +2,11 @@
 PocketRAG - Production CLI Application
 """
 import typer
+import json
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any, Union
 
 from pocketrag.core.indexer import Indexer
 from pocketrag.core.search import Searcher
@@ -128,6 +129,7 @@ def chat(
 def search(
     query: str = typer.Argument(..., help="Search query."),
     top_k: int = typer.Option(config.default_top_k, "--top-k", "-k", help="Number of results to return."),
+    mode: Optional[str] = typer.Option(None, "--mode", "-m", help="Search mode (vector, fts, hybrid)."),
 ):
     """Search your indexed documents."""
     try:
@@ -140,7 +142,7 @@ def search(
         
         console.print(f"[bold green]🔍 Searching for: {query}[/bold green]\n")
         
-        results = searcher.search(query, top_k=top_k)
+        results = searcher.search(query, top_k=top_k, mode=mode)
         
         if not results:
             console.print("[yellow]No relevant documents found.[/yellow]")
@@ -181,6 +183,44 @@ def status():
 
 
 @app.command()
+def config_cmd(
+    key: Optional[str] = typer.Argument(None, help="The config key to get or set."),
+    value: Optional[str] = typer.Argument(None, help="The value to set."),
+):
+    """Get or set configuration values."""
+    if key is None:
+        console.print("[bold blue]🛠️  PocketRAG Configuration[/bold blue]")
+        for k, v in config.to_dict().items():
+            console.print(f"   • {k}: [green]{v}[/green]")
+        return
+
+    if not hasattr(config, key) or isinstance(getattr(type(config), key, None), property):
+        console.print(f"[red]❌ Invalid or read-only config key: {key}[/red]")
+        return
+
+    if value is None:
+        console.print(f"{key}: [green]{getattr(config, key)}[/green]")
+    else:
+        # Try to cast value to the correct type
+        current_val = getattr(config, key)
+        try:
+            if isinstance(current_val, bool):
+                casted_value = value.lower() in ["true", "1", "yes", "on", "enable"]
+            elif isinstance(current_val, int):
+                casted_value = int(value)
+            elif isinstance(current_val, float):
+                casted_value = float(value)
+            else:
+                casted_value = value
+
+            setattr(config, key, casted_value)
+            config.save()
+            console.print(f"[green]✅ Set {key} to {casted_value}[/green]")
+        except Exception as e:
+            console.print(f"[red]❌ Failed to set {key}: {e}[/red]")
+
+
+@app.command()
 def clear(confirm: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation.")):
     """Clear all indexed documents."""
     if not confirm:
@@ -197,6 +237,7 @@ def clear(confirm: bool = typer.Option(False, "--yes", "-y", help="Skip confirma
 
 def main():
     """Entry point for the CLI."""
+    config.load()
     app()
 
 

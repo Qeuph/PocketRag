@@ -178,7 +178,9 @@ class DocumentLoader:
         
         for encoding in encodings:
             try:
-                return file_path.read_text(encoding=encoding)
+                content = file_path.read_text(encoding=encoding)
+                # Basic cleaning: remove null bytes which can crash some processors
+                return content.replace('\x00', '')
             except UnicodeDecodeError:
                 continue
             except Exception as e:
