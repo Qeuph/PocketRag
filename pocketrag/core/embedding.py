@@ -119,13 +119,13 @@ class EmbeddingEngine:
                     convert_to_numpy=True,
                     show_progress_bar=len(texts) > 10,
                     batch_size=self.batch_size,
-                    normalize_embeddings=self.normalize_embeddings,
+                    normalize_embeddings=False,
                 )
-            
-            if self.normalize_embeddings and self._backend != 'fastembed':
-                # Normalize for cosine similarity
+
+            if self.normalize_embeddings:
+                # Normalize uniformly across backends for consistent cosine behavior
                 norm = np.linalg.norm(embeddings, axis=1, keepdims=True)
-                norm[norm == 0] = 1  # Avoid division by zero
+                norm[norm == 0] = 1
                 embeddings = embeddings / norm
             
             return embeddings

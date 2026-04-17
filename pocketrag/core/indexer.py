@@ -211,6 +211,7 @@ class Indexer:
             "files_skipped": 0,
             "files_unchanged": 0,
             "chunks_created": 0,
+            "chunks_replaced": 0,
             "errors": 0
         }
         
@@ -228,7 +229,13 @@ class Indexer:
             logger.info("All files are up to date, nothing to index")
             stats["files_skipped"] = len(files)
             return stats
-        
+
+        # Replace stale chunks for modified files before inserting fresh ones.
+        if incremental:
+            modified_sources = [str(fp) for fp in files_to_index if str(fp) in existing_metadata]
+            for source in modified_sources:
+                stats["chunks_replaced"] += self.store.delete_by_source(source)
+
         # Process files
         for file_path in tqdm(files_to_index, desc="Processing files"):
             try:
@@ -351,7 +358,8 @@ class Indexer:
                 }),
             })
         
-        # Store
+        # Replace and store
+        self.store.delete_by_source(str(path))
         self.store.insert(data_to_store)
         
         return {"files_processed": 1, "chunks_created": len(chunks)}
