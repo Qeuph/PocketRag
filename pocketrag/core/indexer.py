@@ -117,23 +117,36 @@ class Indexer:
             return {}
         
         try:
-            # Get all documents and extract metadata
-            all_docs = self.store.table.to_list()
+            # Get only necessary columns and extract metadata
+            # Using select to avoid loading vectors and text
+            all_docs = self.store.table.search().select(["source", "metadata"]).to_list()
             metadata = {}
             
             for doc in all_docs:
                 source = doc.get('source', '')
                 if source:
                     if source not in metadata:
+                        # Try to extract hash from metadata if available
+                        file_hash = ''
+                        meta_str = doc.get('metadata', '{}')
+                        if meta_str:
+                            try:
+                                import json
+                                meta_dict = json.loads(meta_str)
+                                file_hash = meta_dict.get('file_hash', '')
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+
                         metadata[source] = {
-                            'hash': '',
+                            'hash': file_hash,
                             'indexed_at': None,
                             'chunk_count': 0,
                         }
                     metadata[source]['chunk_count'] = metadata[source].get('chunk_count', 0) + 1
             
             return metadata
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to load metadata: {e}")
             return {}
     
     def _needs_reindexing(

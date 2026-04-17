@@ -88,10 +88,18 @@ class TextChunker:
     
     def _chunk_fixed(self, text: str) -> List[str]:
         """Split text into fixed-size chunks with overlap."""
+        if not text:
+            return []
+
         chunks = []
         step = self.chunk_size - self.overlap
         
+        if len(text) <= self.chunk_size:
+            return [text]
+
         for i in range(0, len(text), step):
+            if i + self.overlap >= len(text) and i > 0:
+                break
             chunk = text[i:i + self.chunk_size]
             if chunk:
                 chunks.append(chunk)

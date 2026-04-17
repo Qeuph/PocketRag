@@ -8,6 +8,7 @@ Features:
 - Multiple distance metrics support
 """
 import logging
+import json
 from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 import numpy as np
@@ -127,7 +128,6 @@ class VectorStore:
                 if 'metadata' not in doc:
                     doc['metadata'] = '{}'
                 elif isinstance(doc['metadata'], dict):
-                    import json
                     doc['metadata'] = json.dumps(doc['metadata'])
             
             # Create table if it doesn't exist
@@ -151,6 +151,12 @@ class VectorStore:
             arrow_table = pa.table(table_data)
             self._table.add(arrow_table)
             
+            # Create FTS index if it doesn't exist and we want to support keyword search
+            try:
+                self._table.create_fts_index("text", replace=True)
+            except Exception as e:
+                logger.warning(f"Failed to create FTS index: {e}")
+
             logger.info(f"Added {len(documents)} documents to {self.table_name}")
             return len(documents)
             
@@ -160,10 +166,12 @@ class VectorStore:
     
     def search(
         self,
-        query_vector: Union[List[float], np.ndarray],
+        query_vector: Optional[Union[List[float], np.ndarray]] = None,
+        query_text: Optional[str] = None,
         top_k: int = 5,
         filter_expr: Optional[str] = None,
         score_threshold: float = 0.0,
+        mode: str = "vector", # "vector", "fts", or "hybrid"
     ) -> List[Dict[str, Any]]:
         """
         Search for similar documents.
@@ -181,24 +189,39 @@ class VectorStore:
             logger.warning("No table available for search")
             return []
         
-        # Convert numpy array to list if needed
-        if isinstance(query_vector, np.ndarray):
-            query_vector = query_vector.tolist()
-        
         try:
-            search_query = self.table.search(query_vector)
+            if mode == "fts" and query_text:
+                search_query = self.table.search(query_text, query_type="fts")
+            elif mode == "hybrid" and query_vector is not None and query_text:
+                # Convert numpy array to list if needed
+                if isinstance(query_vector, np.ndarray):
+                    query_vector = query_vector.tolist()
+                try:
+                    search_query = self.table.search(query_vector).text(query_text)
+                except Exception as e:
+                    # Fallback if hybrid is not supported or fails
+                    logger.warning(f"Hybrid search failed, falling back to vector: {e}")
+                    search_query = self.table.search(query_vector)
+            elif query_vector is not None:
+                # Convert numpy array to list if needed
+                if isinstance(query_vector, np.ndarray):
+                    query_vector = query_vector.tolist()
+                search_query = self.table.search(query_vector)
+            else:
+                logger.warning("No query provided for search")
+                return []
             
             # Apply filter if provided
             if filter_expr:
                 search_query = search_query.where(filter_expr)
             
             # Set limit and metric
-            results = (
-                search_query
-                .limit(top_k)
-                .metric(self.metric)
-                .to_list()
-            )
+            search_query = search_query.limit(top_k)
+
+            if mode != "fts":
+                search_query = search_query.metric(self.metric)
+
+            results = search_query.to_list()
             
             # Filter by score threshold
             if score_threshold > 0:
@@ -227,9 +250,12 @@ class VectorStore:
         if not self.exists():
             return 0
         try:
-            return len(self.table.to_list())
+            return self.table.count_rows()
         except Exception:
-            return 0
+            try:
+                return len(self.table.to_list())
+            except Exception:
+                return 0
     
     def clear(self) -> None:
         """Clear all documents from the store."""
