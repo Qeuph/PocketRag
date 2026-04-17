@@ -1,28 +1,52 @@
 """
 PocketRAG - Vector Store Module using LanceDB
+
+Features:
+- Efficient vector storage and retrieval
+- Metadata filtering
+- Incremental updates (no full overwrite)
+- Multiple distance metrics support
 """
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
 class VectorStore:
-    """Manages vector storage and retrieval using LanceDB."""
+    """
+    Manages vector storage and retrieval using LanceDB.
     
-    def __init__(self, db_path: str, table_name: str = "documents"):
+    Features:
+    - Persistent vector storage
+    - Metadata filtering
+    - Incremental document addition
+    - Multiple distance metrics (COSINE, L2, DOT)
+    """
+    
+    def __init__(
+        self,
+        db_path: str,
+        table_name: str = "documents",
+        metric: str = "cosine",
+    ):
         """
         Initialize the vector store.
         
         Args:
             db_path: Path to the LanceDB database directory
             table_name: Name of the table to use
+            metric: Distance metric for similarity search (cosine, l2, dot)
         """
         self.db_path = db_path
         self.table_name = table_name
+        self.metric = metric.lower()
+        
         self._db = None
         self._table = None
+        self._dimension = None
     
     @property
     def db(self):
@@ -54,12 +78,30 @@ class VectorStore:
                 logger.info(f"Table {self.table_name} will be created on first insert")
         return self._table
     
-    def insert(self, documents: List[Dict[str, Any]]) -> int:
+    def _create_schema(self, dimension: int) -> List[Dict[str, Any]]:
+        """Create table schema with proper types."""
+        import pyarrow as pa
+        
+        schema = pa.schema([
+            pa.field("id", pa.int64()),
+            pa.field("vector", pa.list_(pa.float32(), dimension)),
+            pa.field("text", pa.string()),
+            pa.field("source", pa.string()),
+            pa.field("metadata", pa.string()),  # JSON string for flexibility
+        ])
+        return schema
+    
+    def insert(
+        self,
+        documents: List[Dict[str, Any]],
+        auto_id: bool = True,
+    ) -> int:
         """
-        Insert documents into the vector store.
+        Insert documents into the vector store incrementally.
         
         Args:
             documents: List of dicts with 'vector', 'text', and 'source' keys
+            auto_id: Automatically generate IDs for documents
             
         Returns:
             Number of documents inserted
@@ -68,22 +110,60 @@ class VectorStore:
             return 0
         
         try:
-            # Create or overwrite table with new data
-            self._table = self.db.create_table(
-                self.table_name,
-                data=documents,
-                mode="overwrite"
-            )
-            logger.info(f"Inserted {len(documents)} documents into {self.table_name}")
+            import pyarrow as pa
+            
+            # Get dimension from first document if not known
+            if self._dimension is None and documents:
+                self._dimension = len(documents[0].get('vector', []))
+            
+            # Prepare data with IDs
+            if auto_id:
+                start_id = self.count()
+                for i, doc in enumerate(documents):
+                    doc['id'] = start_id + i
+            
+            # Add metadata field if not present
+            for doc in documents:
+                if 'metadata' not in doc:
+                    doc['metadata'] = '{}'
+                elif isinstance(doc['metadata'], dict):
+                    import json
+                    doc['metadata'] = json.dumps(doc['metadata'])
+            
+            # Create table if it doesn't exist
+            if self._table is None:
+                schema = self._create_schema(self._dimension)
+                self._table = self.db.create_table(
+                    self.table_name,
+                    schema=schema,
+                )
+                logger.info(f"Created new table: {self.table_name}")
+            
+            # Convert to Arrow table and add
+            table_data = {
+                'id': [doc['id'] for doc in documents],
+                'vector': [doc['vector'] for doc in documents],
+                'text': [doc['text'] for doc in documents],
+                'source': [doc['source'] for doc in documents],
+                'metadata': [doc['metadata'] for doc in documents],
+            }
+            
+            arrow_table = pa.table(table_data)
+            self._table.add(arrow_table)
+            
+            logger.info(f"Added {len(documents)} documents to {self.table_name}")
             return len(documents)
+            
         except Exception as e:
             logger.error(f"Failed to insert documents: {e}")
             raise
     
     def search(
         self,
-        query_vector: Any,
-        top_k: int = 5
+        query_vector: Union[List[float], np.ndarray],
+        top_k: int = 5,
+        filter_expr: Optional[str] = None,
+        score_threshold: float = 0.0,
     ) -> List[Dict[str, Any]]:
         """
         Search for similar documents.
@@ -91,6 +171,8 @@ class VectorStore:
         Args:
             query_vector: The query embedding vector
             top_k: Number of results to return
+            filter_expr: Optional SQL-like filter expression (e.g., "source = 'file.txt'")
+            score_threshold: Minimum similarity score threshold
             
         Returns:
             List of matching documents with metadata
@@ -99,14 +181,35 @@ class VectorStore:
             logger.warning("No table available for search")
             return []
         
+        # Convert numpy array to list if needed
+        if isinstance(query_vector, np.ndarray):
+            query_vector = query_vector.tolist()
+        
         try:
+            search_query = self.table.search(query_vector)
+            
+            # Apply filter if provided
+            if filter_expr:
+                search_query = search_query.where(filter_expr)
+            
+            # Set limit and metric
             results = (
-                self.table.search(query_vector)
+                search_query
                 .limit(top_k)
+                .metric(self.metric)
                 .to_list()
             )
+            
+            # Filter by score threshold
+            if score_threshold > 0:
+                results = [
+                    r for r in results 
+                    if r.get('_distance', 0) >= score_threshold
+                ]
+            
             logger.debug(f"Search returned {len(results)} results")
             return results
+            
         except Exception as e:
             logger.error(f"Search failed: {e}")
             return []
@@ -133,6 +236,51 @@ class VectorStore:
         try:
             self.db.drop_table(self.table_name)
             self._table = None
+            self._dimension = None
             logger.info(f"Cleared table: {self.table_name}")
         except Exception as e:
             logger.warning(f"Failed to clear table: {e}")
+    
+    def delete_by_source(self, source: str) -> int:
+        """
+        Delete documents from a specific source.
+        
+        Args:
+            source: The source file path to delete
+            
+        Returns:
+            Number of documents deleted
+        """
+        if not self.exists():
+            return 0
+        
+        try:
+            # Get current count
+            before_count = self.count()
+            
+            # Delete matching documents
+            self.table.delete(f"source = '{source}'")
+            
+            # Get new count
+            after_count = self.count()
+            deleted = before_count - after_count
+            
+            logger.info(f"Deleted {deleted} documents from source: {source}")
+            return deleted
+            
+        except Exception as e:
+            logger.error(f"Failed to delete documents: {e}")
+            return 0
+    
+    def get_sources(self) -> List[str]:
+        """Get list of all unique sources in the store."""
+        if not self.exists():
+            return []
+        
+        try:
+            # Get all documents and extract unique sources
+            all_docs = self.table.to_list()
+            sources = list(set(doc.get('source', '') for doc in all_docs))
+            return sorted(sources)
+        except Exception:
+            return []
