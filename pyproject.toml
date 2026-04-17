@@ -1,6 +1,6 @@
 [project]
 name = "pocketrag"
-version = "1.0.0"
+version = "2.0.0"
 description = "Privacy-first, local RAG engine. Run LLM search on your documents without the cloud."
 readme = "README.md"
 license = {text = "MIT"}
@@ -29,9 +29,27 @@ dependencies = [
     "pypdf>=3.0.0",
     "tqdm>=4.65.0",
     "numpy>=1.24.0",
+    "pyarrow>=12.0.0",
 ]
 
 [project.optional-dependencies]
+fast = [
+    "fastembed>=0.2.0",  # Faster embedding backend
+]
+docs = [
+    "python-docx>=0.8.11",  # DOCX support
+    "beautifulsoup4>=4.12.0",  # HTML parsing
+    "pyyaml>=6.0",  # YAML support
+]
+rerank = [
+    "sentence-transformers>=2.2.0",  # For cross-encoder reranking
+]
+full = [
+    "fastembed>=0.2.0",
+    "python-docx>=0.8.11",
+    "beautifulsoup4>=4.12.0",
+    "pyyaml>=6.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
